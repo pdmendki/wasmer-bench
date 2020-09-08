@@ -6,9 +6,7 @@ extern crate rust_wasm_c_api;
 #[cfg(feature = "v8")]
 use rust_wasm_c_api::*;
 
-extern crate wasmer_clif_backend;
 extern crate wasmer_singlepass_backend;
-extern crate wasmer_llvm_backend;
 extern crate wasmer_runtime_core;
 
 #[cfg(feature = "bench-wasmi")]
@@ -28,16 +26,14 @@ static LARGE_WASM: &'static [u8] = include_bytes!("../benchmarks/src/lua.wasm");
 
 use criterion::*;
 use wasm_bench_benchmarks;
-use wasmer_clif_backend::CraneliftCompiler;
 use wasmer_singlepass_backend::SinglePassCompiler;
-use wasmer_llvm_backend::LLVMCompiler;
 
 #[cfg(feature = "bench-wasmi")]
 use wasmi::{ImportsBuilder, ModuleInstance, NopExternals, RuntimeValue};
 
 fn compile_benchmark(c: &mut Criterion) {
-    let mut small_benchmark = Benchmark::new("wasmer-clif", |b| {
-        let compiler = &CraneliftCompiler::new();
+    let mut small_benchmark = Benchmark::new("wasmer-dynasm", |b| {
+        let compiler = &SinglePassCompiler::new();
         b.iter(|| {
             black_box(
                 wasmer_runtime_core::compile_with(SMALL_WASM, compiler).expect("should compile"),
@@ -45,23 +41,7 @@ fn compile_benchmark(c: &mut Criterion) {
         })
     })
     .sample_size(10)
-    .throughput(Throughput::Bytes(SMALL_WASM.len() as u32))
-    .with_function("wasmer-llvm", |b| {
-        let compiler = &LLVMCompiler::new();
-        b.iter(|| {
-            black_box(
-                wasmer_runtime_core::compile_with(SMALL_WASM, compiler).expect("should compile"),
-            )
-        })
-    })
-    .with_function("wasmer-dynasm", |b| {
-        let compiler = &SinglePassCompiler::new();
-        b.iter(|| {
-            black_box(
-                wasmer_runtime_core::compile_with(SMALL_WASM, compiler).expect("should compile"),
-            )
-        })
-    });
+    .throughput(Throughput::Bytes(SMALL_WASM.len() as u32));
 
     #[cfg(feature = "fast")]
     {
@@ -71,8 +51,8 @@ fn compile_benchmark(c: &mut Criterion) {
 
     c.bench("small_compile", small_benchmark);
 
-    let mut large_benchmark = Benchmark::new("wasmer-clif", |b| {
-        let compiler = &CraneliftCompiler::new();
+    let mut large_benchmark = Benchmark::new("wasmer-dynasm", |b| {
+        let compiler = &SinglePassCompiler::new();
         b.iter(|| {
             black_box(
                 wasmer_runtime_core::compile_with(LARGE_WASM, compiler).expect("should compile"),
@@ -80,24 +60,7 @@ fn compile_benchmark(c: &mut Criterion) {
         })
     })
     .sample_size(2)
-    .throughput(Throughput::Bytes(LARGE_WASM.len() as u32))
-    .with_function("wasmer-llvm", |b| {
-        let compiler = &LLVMCompiler::new();
-        b.iter(|| {
-            black_box(
-                wasmer_runtime_core::compile_with(LARGE_WASM, compiler).expect("should compile"),
-            )
-        })
-    })
-    .with_function("wasmer-dynasm", |b| {
-        let compiler = &SinglePassCompiler::new();
-        b.iter(|| {
-            black_box(
-                wasmer_runtime_core::compile_with(LARGE_WASM, compiler).expect("should compile"),
-            )
-        })
-    });
-
+    .throughput(Throughput::Bytes(LARGE_WASM.len() as u32));
 
     #[cfg(feature = "fast")]
     {
@@ -162,24 +125,6 @@ mod wasm_c_api_support {
 fn sum_benchmark(c: &mut Criterion) {
     let mut benchmark = Benchmark::new("rust-native", |b| {
         b.iter(|| black_box(wasm_bench_benchmarks::sum(1, 2)))
-    })
-    .with_function("wasmer-clif", |b| {
-        let module = wasmer_runtime_core::compile_with(WASM, &CraneliftCompiler::new())
-            .expect("should compile");
-        let instance = module
-            .instantiate(&ImportObject::new())
-            .expect("should instantiate");
-        let sum: Func<(i32, i32), i32> = instance.func("sum").unwrap();
-        b.iter(|| black_box(sum.call(1, 2)))
-    })
-    .with_function("wasmer-llvm", |b| {
-        let module =
-            wasmer_runtime_core::compile_with(WASM, &LLVMCompiler::new()).expect("should compile");
-        let instance = module
-            .instantiate(&ImportObject::new())
-            .expect("should instantiate");
-        let sum: Func<(i32, i32), i32> = instance.func("sum").unwrap();
-        b.iter(|| black_box(sum.call(1, 2)))
     })
     .with_function("wasmer-dynasm", |b| {
         let module = wasmer_runtime_core::compile_with(WASM, &SinglePassCompiler::new())
@@ -302,24 +247,6 @@ fn fib_benchmark(c: &mut Criterion) {
     let mut benchmark = Benchmark::new("rust-native", |b| {
         b.iter(|| black_box(wasm_bench_benchmarks::fib(30)))
     })
-    .with_function("wasmer-clif", |b| {
-        let module = wasmer_runtime_core::compile_with(WASM, &CraneliftCompiler::new())
-            .expect("should compile");
-        let instance = module
-            .instantiate(&ImportObject::new())
-            .expect("should instantiate");
-        let fib: Func<(i64), i64> = instance.func("fib").unwrap();
-        b.iter(|| black_box(fib.call(30)))
-    })
-    .with_function("wasmer-llvm", |b| {
-        let module =
-            wasmer_runtime_core::compile_with(WASM, &LLVMCompiler::new()).expect("should compile");
-        let instance = module
-            .instantiate(&ImportObject::new())
-            .expect("should instantiate");
-        let fib: Func<(i64), i64> = instance.func("fib").unwrap();
-        b.iter(|| black_box(fib.call(30)))
-    })
     .with_function("wasmer-dynasm", |b| {
         let module = wasmer_runtime_core::compile_with(WASM, &SinglePassCompiler::new())
             .expect("should compile");
@@ -436,32 +363,6 @@ fn nbody_benchmark(c: &mut Criterion) {
     let mut benchmark = Benchmark::new("rust-native", |b| {
         b.iter(|| black_box(unsafe { wasm_bench_benchmarks::nbody::nbody_bench(5000) }))
     })
-    .with_function("wasmer-clif", |b| {
-        let module = wasmer_runtime_core::compile_with(WASM, &CraneliftCompiler::new())
-            .expect("should compile");
-        let instance = module
-            .instantiate(&ImportObject::new())
-            .expect("should instantiate");
-        
-        let init_func: Func<()> = instance.func("init").unwrap();
-        init_func.call().unwrap();
-
-        let func: Func<(i32)> = instance.func("nbody_bench").unwrap();
-        b.iter(|| black_box(func.call(5000)))
-    })
-    .with_function("wasmer-llvm", |b| {
-        let module =
-            wasmer_runtime_core::compile_with(WASM, &LLVMCompiler::new()).expect("should compile");
-        let instance = module
-            .instantiate(&ImportObject::new())
-            .expect("should instantiate");
-
-        let init_func: Func<()> = instance.func("init").unwrap();
-        init_func.call().unwrap();
-
-        let func: Func<(i32)> = instance.func("nbody_bench").unwrap();
-        b.iter(|| black_box(func.call(5000)))
-    })
     .with_function("wasmer-dynasm", |b| {
         let module = wasmer_runtime_core::compile_with(WASM, &SinglePassCompiler::new())
             .expect("should compile");
@@ -575,24 +476,6 @@ fn fannkuch_benchmark(c: &mut Criterion) {
     let mut benchmark = Benchmark::new("rust-native", |b| {
         b.iter(|| black_box(unsafe { wasm_bench_benchmarks::fannkuch_steps(5) }))
     })
-    .with_function("wasmer-clif", |b| {
-        let module = wasmer_runtime_core::compile_with(WASM, &CraneliftCompiler::new())
-            .expect("should compile");
-        let instance = module
-            .instantiate(&ImportObject::new())
-            .expect("should instantiate");
-        let func: Func<(i32)> = instance.func("fannkuch_steps").unwrap();
-        b.iter(|| black_box(func.call(5)))
-    })
-    .with_function("wasmer-llvm", |b| {
-        let module =
-            wasmer_runtime_core::compile_with(WASM, &LLVMCompiler::new()).expect("should compile");
-        let instance = module
-            .instantiate(&ImportObject::new())
-            .expect("should instantiate");
-        let func: Func<(i32)> = instance.func("fannkuch_steps").unwrap();
-        b.iter(|| black_box(func.call(5)))
-    })
     .with_function("wasmer-dynasm", |b| {
         let module = wasmer_runtime_core::compile_with(WASM, &SinglePassCompiler::new())
             .expect("should compile");
@@ -703,24 +586,6 @@ fn fannkuch_benchmark(c: &mut Criterion) {
 fn sha1_benchmark(c: &mut Criterion) {
     let mut benchmark = Benchmark::new("rust-native", |b| {
         b.iter(|| black_box(unsafe { wasm_bench_benchmarks::sha1(1000) }))
-    })
-    .with_function("wasmer-clif", |b| {
-        let module = wasmer_runtime_core::compile_with(WASM, &CraneliftCompiler::new())
-            .expect("should compile");
-        let instance = module
-            .instantiate(&ImportObject::new())
-            .expect("should instantiate");
-        let func: Func<(i32)> = instance.func("sha1").unwrap();
-        b.iter(|| black_box(func.call(1000)))
-    })
-    .with_function("wasmer-llvm", |b| {
-        let module =
-            wasmer_runtime_core::compile_with(WASM, &LLVMCompiler::new()).expect("should compile");
-        let instance = module
-            .instantiate(&ImportObject::new())
-            .expect("should instantiate");
-        let func: Func<(i32)> = instance.func("sha1").unwrap();
-        b.iter(|| black_box(func.call(1000)))
     })
     .with_function("wasmer-dynasm", |b| {
         let module = wasmer_runtime_core::compile_with(WASM, &SinglePassCompiler::new())
